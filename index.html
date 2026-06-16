@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>光栅衍射强度仿真</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+        }
+
+        body {
+            background: #000;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+
+        .title {
+            text-align: center;
+            font-size: 26px;
+            margin-bottom: 20px;
+            color: #f1f5f9;
+        }
+
+        /* 主显示区域：上下布局 */
+        .sim-box {
+            max-width: 920px;
+            margin: 0 auto;
+            background: #000;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.4);
+        }
+
+        /* 上方：强度曲线  */
+        .curve-box {
+            margin-bottom: 15px;
+        }
+        .curve-box h3 {
+            font-size: 17px;
+            margin-bottom: 10px;
+            color: #cbd5e1;
+            text-align: center;
+        }
+        canvas#curve {
+            width: 100%;
+            height: 320px;
+            background: #000;
+            border-radius: 6px;
+            display: block;
+        }
+
+        /* 下方：衍射光斑 */
+        .pattern-box {
+        width: 100%;
+        height: 140px; /* 改成和画布高度一致 */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden; /* 防止旋转后内容溢出 */
+    }
+
+        /* 控制面板 */
+        .panel {
+            max-width: 920px;
+            margin: 20px auto 0;
+            background: #000;
+            border-radius: 10px;
+            padding: 18px 25px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        .item label {
+            width: 95px;
+            color: #e1e7ef;
+        }
+        input[type="range"] {
+            width: 140px;
+        }
+        .val {
+            min-width: 42px;
+            color: #94a3b8;
+            text-align: right;
+        }
+
+        /* 七色光 + 白光 */
+        .colors {
+            display: flex;
+            gap: 7px;
+            margin-top: 5px;
+        }
+        .cbtn {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 2px solid #1e293b;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .cbtn.active {
+            transform: scale(1.18);
+            border-color: #38bdf8;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="title">光栅衍射强度仿真</div>
+
+    <div class="sim-box">
+        <!--上方：强度曲线 -->
+        <div class="curve-box">
+            <h3>衍射光强分布曲线</h3>
+            <canvas id="curve" width="860" height="320"></canvas>
+        </div>
+
+        <!-- 下方：衍射光斑 -->
+        <div class="pattern-box">
+            <canvas id="pattern" width="140" height="860"style="transform: rotate(90deg); transform-origin: center;"></canvas>
+        </div>
+    </div>
+
+    <!-- 控制面板 -->
+    <div class="panel">
+        <div class="item">
+            <label>光栅常数<br>d(μm)</label>
+            <input type="range" id="d" min="1" max="10" value="6" step="0.1">
+            <span class="val" id="d_val">6.0</span>
+        </div>
+        <div class="item">
+            <label>单缝宽度<br>a(μm)</label>
+            <input type="range" id="a" min="0.1" max="3" value="1" step="0.1">
+            <span class="val" id="a_val">1.0</span>
+        </div>
+        <div class="item">
+            <label>缝数<br>N</label>
+            <input type="range" id="N" min="2" max="50" value="5">
+            <span class="val" id="N_val">5</span>
+        </div>
+
+        <div style="width:100%;height:2px;"></div>
+
+        <div class="colors">
+            <div class="cbtn" style="background:#ff0000" data-r="255" data-g="0" data-b="0" data-lam="650"></div>
+            <div class="cbtn" style="background:#ff9900" data-r="255" data-g="153" data-b="0" data-lam="600"></div>
+            <div class="cbtn" style="background:#ffff00" data-r="255" data-g="255" data-b="0" data-lam="580"></div>
+            <div class="cbtn" style="background:#00ff00" data-r="0" data-g="255" data-b="0" data-lam="510"></div>
+            <div class="cbtn" style="background:#0099ff" data-r="0" data-g="153" data-b="255" data-lam="475"></div>
+            <div class="cbtn" style="background:#0000ff" data-r="0" data-g="0" data-b="255" data-lam="450"></div>
+            <div class="cbtn" style="background:#9900ff" data-r="153" data-g="0" data-b="255" data-lam="400"></div>
+            <div class="cbtn" style="background:#ffffff" data-r="255" data-g="255" data-b="255" ></div>
+        </div>
+    </div>
+
+<script>
+    // ========== 画布 ==========
+    const curve = document.getElementById('curve');
+    const pattern = document.getElementById('pattern');
+    const ctxC = curve.getContext('2d');
+    const ctxP = pattern.getContext('2d');
+
+    // ========== 滑块 ==========
+    const dSlider = document.getElementById('d');
+    const aSlider = document.getElementById('a');
+    const NSlider = document.getElementById('N');
+    const dVal = document.getElementById('d_val');
+    const aVal = document.getElementById('a_val');
+    const NVal = document.getElementById('N_val');
+
+    // ========== 当前光色 ==========
+    let currentColor = { r:255, g:255, b:255 };
+
+    // 七种单色光数据（用于白光叠加）
+    const sevenColors = [
+        { r:255, g:0,   b:0,   lam:650 }, // 红
+        { r:255, g:153, b:0,   lam:600 }, // 橙
+        { r:255, g:255, b:0,   lam:580 }, // 黄
+        { r:0,   g:255, b:0,   lam:510 }, // 绿
+        { r:0,   g:153, b:255, lam:475 }, // 青
+        { r:0,   g:0,   b:255, lam:450 }, // 蓝
+        { r:153, g:0,   b:255, lam:400 }  // 紫
+    ];
+
+    // ========== 角度范围 ==========
+    const thetaMin = -0.26;
+    const thetaMax = 0.26;
+
+    // ========== 获取参数 ==========
+    function getParams(lam = currentColor.lam) {
+        return {
+            d: parseFloat(dSlider.value) * 1e-6,
+            a: parseFloat(aSlider.value) * 1e-6,
+            N: parseInt(NSlider.value),
+            lam: lam * 1e-9
+        };
+    }
+
+    // ========== 光栅衍射光强公式 ==========
+    function intensity(theta, d, a, lam, N) {
+        const π = Math.PI;
+        let u = π * a * Math.sin(theta) / lam;
+        let v = π * d * Math.sin(theta) / lam;
+        let single = u === 0 ? 1 : (Math.sin(u)/u) ** 2;
+        let multi  = v === 0 ? N*N : (Math.sin(N*v)/Math.sin(v)) ** 2;
+        return single * multi;
+    }
+
+    // ========== 单缝衍射包络线 ==========
+    function envelope(theta, a, lam) {
+        const π = Math.PI;
+        let u = π * a * Math.sin(theta) / lam;
+        return u === 0 ? 1 : (Math.sin(u)/u) ** 2;
+    }
+
+    // ========== 绘制强度曲线 ==========
+    function drawCurve() {
+    const w = curve.width, h = curve.height;
+    ctxC.clearRect(0,0,w,h);
+
+    // 判断是否为白光
+    const isWhite = currentColor.r === 255 && currentColor.g === 255 && currentColor.b === 255;
+
+    if (isWhite) {
+        // 白光：七色叠加绘制
+        let allMaxI = 0;
+        sevenColors.forEach(color => {
+            const { d,a,lam,N } = getParams(color.lam);
+            for(let x=0; x<w; x++){
+                let t = thetaMin + (thetaMax-thetaMin)*x/w;
+                let i = intensity(t,d,a,lam,N);
+                if(i>allMaxI) allMaxI=i;
+            }
+        });
+        if(allMaxI===0) allMaxI=1;
+
+        // 先绘制包络线（虚线，在底层）
+        sevenColors.forEach(color => {
+            const { a, lam } = getParams(color.lam);
+            ctxC.strokeStyle = `rgba(${color.r},${color.g},${color.b},0.4)`;
+            ctxC.lineWidth = 1.5;
+            ctxC.setLineDash([5, 5]);
+            ctxC.beginPath();
+            for(let x=0; x<w; x++){
+                let t = thetaMin + (thetaMax-thetaMin)*x/w;
+                let env = envelope(t, a, lam) * (parseInt(NSlider.value) ** 2);
+                let y = h - 20 - (env/allMaxI)*(h-40);
+                x===0 ? ctxC.moveTo(x,y) : ctxC.lineTo(x,y);
+            }
+            ctxC.stroke();
+        });
+        ctxC.setLineDash([]);
+
+        sevenColors.forEach(color => {
+            const { d,a,lam,N } = getParams(color.lam);
+            let data = [];
+            for(let x=0; x<w; x++){
+                let t = thetaMin + (thetaMax-thetaMin)*x/w;
+                data.push(intensity(t,d,a,lam,N));
+            }
+
+            ctxC.strokeStyle = `rgb(${color.r},${color.g},${color.b})`;
+            ctxC.lineWidth = 2.6;
+            ctxC.beginPath();
+            for(let x=0; x<w; x++){
+                let y = h - 20 - (data[x]/allMaxI)*(h-40);
+                x===0 ? ctxC.moveTo(x,y) : ctxC.lineTo(x,y);
+            }
+            ctxC.stroke();
+        });
+    } else {
+        // 单色光原有逻辑
+        const { d,a,lam,N } = getParams();
+        let maxI = 0, data = [];
+        for(let x=0; x<w; x++){
+            let t = thetaMin + (thetaMax-thetaMin)*x/w;
+            let i = intensity(t,d,a,lam,N);
+            data.push(i);
+            if(i>maxI) maxI=i;
+        }
+        if(maxI===0) maxI=1;
+
+        // 绘制包络线（虚线，在底层）
+        ctxC.strokeStyle = `rgba(${currentColor.r},${currentColor.g},${currentColor.b},0.5)`;
+        ctxC.lineWidth = 1.5;
+        ctxC.setLineDash([6, 4]);
+        ctxC.beginPath();
+        for(let x=0; x<w; x++){
+            let t = thetaMin + (thetaMax-thetaMin)*x/w;
+            let env = envelope(t, a, lam) * (N * N);
+            let y = h - 20 - (env/maxI)*(h-40);
+            x===0 ? ctxC.moveTo(x,y) : ctxC.lineTo(x,y);
+        }
+        ctxC.stroke();
+        ctxC.setLineDash([]);
+
+        ctxC.strokeStyle = `rgb(${currentColor.r},${currentColor.g},${currentColor.b})`;
+        ctxC.lineWidth = 2.6;
+        ctxC.beginPath();
+        for(let x=0; x<w; x++){
+            let y = h - 20 - (data[x]/maxI)*(h-40);
+            x===0 ? ctxC.moveTo(x,y) : ctxC.lineTo(x,y);
+        }
+        ctxC.stroke();
+    }
+
+    // 中心线
+    ctxC.strokeStyle = '#333';
+    ctxC.lineWidth = 1;
+    ctxC.beginPath();
+    ctxC.moveTo(w/2, 0);
+    ctxC.lineTo(w/2, h);
+    ctxC.stroke();
+}
+
+    // ========== 绘制衍射光斑 ==========
+    function drawPattern() {
+    const w = pattern.width, h = pattern.height;
+    const img = ctxP.createImageData(w,h);
+
+    const isWhite = currentColor.r === 255 && currentColor.g === 255 && currentColor.b === 255;
+
+    if (isWhite) {
+        // 白光：七色光斑叠加
+        let allMaxI = 0;
+        const colorData = [];
+
+        sevenColors.forEach(color => {
+            const { d,a,lam,N } = getParams(color.lam);
+            let data = [];
+            for(let y=0; y<h; y++){
+                let t = thetaMin + (thetaMax-thetaMin)*y/h;
+                let i = intensity(t,d,a,lam,N);
+                data.push(i);
+                if(i>allMaxI) allMaxI=i;
+            }
+            colorData.push({ color, data });
+        });
+        if(allMaxI===0) allMaxI=1;
+
+        // 先涂黑
+        for(let i=0; i<img.data.length; i+=4) {
+            img.data[i]=0; img.data[i+1]=0; img.data[i+2]=0; img.data[i+3]=255;
+        }
+
+        // 叠加七色
+        colorData.forEach(({ color, data }) => {
+            for(let y=0; y<h; y++){
+                let f = Math.min(1, data[y]/allMaxI);
+                let r = color.r * f;
+                let g = color.g * f;
+                let b = color.b * f;
+                for(let x=0; x<w; x++){
+                    let idx = (y*w + x)*4;
+                    img.data[idx]   = Math.min(255, img.data[idx]   + r);
+                    img.data[idx+1] = Math.min(255, img.data[idx+1] + g);
+                    img.data[idx+2] = Math.min(255, img.data[idx+2] + b);
+                }
+            }
+        });
+    } else {
+        // 单色光原有逻辑
+        const { d,a,lam,N } = getParams();
+        let maxI = 0, data = [];
+        for(let y=0; y<h; y++){
+            let t = thetaMin + (thetaMax-thetaMin)*y/h;
+            let i = intensity(t,d,a,lam,N);
+            data.push(i);
+            if(i>maxI) maxI=i;
+        }
+        if(maxI===0) maxI=1;
+
+        for(let y=0; y<h; y++){
+            let f = Math.min(1, data[y]/maxI);
+            let r = currentColor.r * f;
+            let g = currentColor.g * f;
+            let b = currentColor.b * f;
+            for(let x=0; x<w; x++){
+                let idx = (y*w + x)*4;
+                img.data[idx] = r;
+                img.data[idx+1] = g;
+                img.data[idx+2] = b;
+                img.data[idx+3] = 255;
+            }
+        }
+    }
+
+    ctxP.putImageData(img,0,0);
+}
+
+    // ========== 刷新 ==========
+    function updateAll() {
+        dVal.textContent = dSlider.value;
+        aVal.textContent = aSlider.value;
+        NVal.textContent = NSlider.value;
+        drawCurve();
+        drawPattern();
+    }
+
+    // ========== 颜色按钮 ==========
+    document.querySelectorAll('.cbtn').forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll('.cbtn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentColor = {
+                r: +btn.dataset.r,
+                g: +btn.dataset.g,
+                b: +btn.dataset.b,
+                lam: +btn.dataset.lam
+            };
+            updateAll();
+        };
+    });
+
+    // ========== 滑块事件 ==========
+    dSlider.oninput = updateAll;
+    aSlider.oninput = updateAll;
+    NSlider.oninput = updateAll;
+
+    // 初始化
+    updateAll();
+</script>
+</body>
+</html>
